@@ -73,6 +73,7 @@
 - 향후 추가할 테이블:
   - `user_profiles` — 사용자 역할 및 기본 정보 저장 (`role`: admin / manager / viewer)
   - `buyer_access` — 사용자별 접근 허용 바이어 목록 (user_id + buyer_id 매핑)
+- **MVP 인증 방식**: 현재 MVP는 클라이언트 사이드 세션 체크 방식으로 로그인 보호를 구현한다. 향후 SaaS화 또는 보안 강화 단계에서는 `@supabase/ssr` + `proxy.ts` 기반 서버사이드 라우트 보호로 전환할 수 있다.
 
 ---
 
