@@ -25,6 +25,39 @@ const TYPE_COLORS: Record<string, string> = {
   GWP: 'bg-purple-100 text-purple-700',
 }
 
+const HEADER_KEYWORDS = new Set([
+  'sku코드', 'sku-code', 'sku_code', 'sku code', 'sku',
+  '영문제품명', 'product(en)', '영문명', 'product name', 'product_name',
+  '한글제품명', 'product(kr)', '한글명',
+  '제품유형', 'product type', 'product_type',
+  '카테고리', 'category',
+  '공급가', 'supply price', 'supply_price',
+  '통화', 'currency',
+  'moq수량', 'moq_quantity', 'moq수량(ea)', 'moq(ea)',
+])
+
+const BRAND_TAG_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-violet-100 text-violet-700',
+  'bg-pink-100 text-pink-700',
+  'bg-orange-100 text-orange-700',
+  'bg-teal-100 text-teal-700',
+  'bg-cyan-100 text-cyan-700',
+  'bg-lime-100 text-lime-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-indigo-100 text-indigo-700',
+]
+
+function brandTagColor(brandId: string | null): string {
+  if (!brandId) return 'bg-gray-100 text-gray-600'
+  let hash = 0
+  for (let i = 0; i < brandId.length; i++) {
+    hash = (hash * 31 + brandId.charCodeAt(i)) & 0xffff
+  }
+  return BRAND_TAG_COLORS[hash % BRAND_TAG_COLORS.length]
+}
+
 type Brand = { id: string; brand_name: string }
 
 type Product = {
@@ -123,8 +156,10 @@ export default function ProductsPage() {
   const [bulkBrandId, setBulkBrandId] = useState('')
   const [pasteText, setPasteText] = useState('')
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
+  const [bulkSkippedCount, setBulkSkippedCount] = useState(0)
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkMessage, setBulkMessage] = useState<Message | null>(null)
+  const [viewingId, setViewingId] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -198,6 +233,7 @@ export default function ProductsPage() {
   }
 
   function startCreate() {
+    setViewingId(null)
     setEditingId(null)
     setIsCreating(true)
     setIsCopying(false)
@@ -207,6 +243,7 @@ export default function ProductsPage() {
   }
 
   function startCopy(p: Product) {
+    setViewingId(null)
     setEditingId(null)
     setIsCreating(true)
     setIsCopying(true)
@@ -240,6 +277,7 @@ export default function ProductsPage() {
   }
 
   function startEdit(p: Product) {
+    setViewingId(null)
     setIsCreating(false)
     setEditingId(p.id)
     setForm({
@@ -272,6 +310,7 @@ export default function ProductsPage() {
   }
 
   function cancelForm() {
+    setViewingId(null)
     setEditingId(null)
     setIsCreating(false)
     setIsCopying(false)
@@ -424,6 +463,15 @@ export default function ProductsPage() {
     }
   }
 
+  function startView(p: Product) {
+    cancelForm()
+    setViewingId(p.id)
+  }
+
+  function closeView() {
+    setViewingId(null)
+  }
+
   function startBulkMode() {
     cancelForm()
     setBulkMode(true)
@@ -443,10 +491,24 @@ export default function ProductsPage() {
 
   function parsePasteText() {
     const existingSkus = new Set(products.filter(p => p.sku_code).map(p => p.sku_code!))
-    const lines = pasteText.trim().split('\n').filter(l => l.trim())
+    const allLines = pasteText.split('\n')
     const skusInBatch = new Set<string>()
+    let skipped = 0
 
-    const rows: ParsedRow[] = lines.map(line => {
+    const dataLines = allLines.filter(line => {
+      if (!line.trim()) { skipped++; return false }
+      const cols = line.split('\t')
+      const a = cols[0]?.trim().toLowerCase() ?? ''
+      const b = cols[1]?.trim().toLowerCase() ?? ''
+      const e = cols[4]?.trim().toLowerCase() ?? ''
+      if (HEADER_KEYWORDS.has(a) || HEADER_KEYWORDS.has(b) || HEADER_KEYWORDS.has(e)) {
+        skipped++
+        return false
+      }
+      return true
+    })
+
+    const rows: ParsedRow[] = dataLines.map(line => {
       const cols = line.split('\t')
       const sku_code = cols[0]?.trim() ?? ''
       const product_name = cols[1]?.trim() ?? ''
@@ -455,14 +517,25 @@ export default function ProductsPage() {
       const product_type = PRODUCT_TYPES.includes(rawType) ? rawType : 'Live'
       const category = cols[4]?.trim() ?? ''
       const supply_price = cols[5]?.trim() ?? ''
-      const rawCurrency = cols[6]?.trim() ?? ''
-      const currency = CURRENCIES.includes(rawCurrency) ? rawCurrency : 'USD'
+      const rawCurrencyInput = cols[6]?.trim() ?? ''
+      const rawCurrency = rawCurrencyInput.toUpperCase()
+      let currency = 'KRW'
+      const currencyErrors: string[] = []
+      if (!rawCurrencyInput) {
+        currency = 'KRW'
+      } else if (CURRENCIES.includes(rawCurrency)) {
+        currency = rawCurrency
+      } else {
+        currency = rawCurrencyInput
+        currencyErrors.push(`통화 오류 (${rawCurrencyInput})`)
+      }
       const moq_quantity = cols[7]?.trim() ?? ''
       const moq = cols[8]?.trim() ?? ''
       const lead_time = cols[9]?.trim() ?? ''
 
       const errors: string[] = []
       if (!product_name) errors.push('영문명 필수')
+      errors.push(...currencyErrors)
       if (sku_code) {
         if (existingSkus.has(sku_code)) errors.push('SKU 이미 등록됨')
         else if (skusInBatch.has(sku_code)) errors.push('SKU 배치 내 중복')
@@ -471,6 +544,8 @@ export default function ProductsPage() {
 
       return { sku_code, product_name, product_name_kr, product_type, category, supply_price, currency, moq_quantity, moq, lead_time, errors }
     })
+
+    setBulkSkippedCount(skipped)
     setParsedRows(rows)
   }
 
@@ -517,6 +592,7 @@ export default function ProductsPage() {
   }
 
   const showForm = isCreating || editingId !== null
+  const viewingProduct = viewingId ? (products.find(p => p.id === viewingId) ?? null) : null
   const validCount = parsedRows.filter(r => r.errors.length === 0).length
   const errorCount = parsedRows.filter(r => r.errors.length > 0).length
 
@@ -568,14 +644,14 @@ export default function ProductsPage() {
                   <span key={col} className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5 font-mono">{col}</span>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 mt-1.5">* 영문명 필수. D열 비우면 Live, G열 비우면 USD 자동 적용.</p>
+              <p className="text-xs text-gray-400 mt-1.5">* 영문명 필수. D열 비우면 Live, G열 비우면 KRW 자동 적용. G열 유효값: USD KRW EUR TWD CNY JPY</p>
             </div>
 
             <div className="mb-4">
               <label className="block text-xs font-medium text-gray-700 mb-1">데이터 붙여넣기</label>
               <textarea
                 value={pasteText}
-                onChange={e => { setPasteText(e.target.value); setParsedRows([]) }}
+                onChange={e => { setPasteText(e.target.value); setParsedRows([]); setBulkSkippedCount(0) }}
                 rows={6}
                 placeholder="엑셀/구글시트에서 셀 범위 선택 → Ctrl+C → 여기서 Ctrl+V"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none font-mono"
@@ -605,6 +681,7 @@ export default function ProductsPage() {
                 <span className="ml-2 text-xs font-normal text-gray-500">전체 {parsedRows.length}행</span>
                 {validCount > 0 && <span className="ml-1 text-xs font-normal text-green-600">· 유효 {validCount}개</span>}
                 {errorCount > 0 && <span className="ml-1 text-xs font-normal text-red-500">· 오류 {errorCount}개</span>}
+                {bulkSkippedCount > 0 && <span className="ml-1 text-xs font-normal text-gray-400">· 헤더/빈 행 {bulkSkippedCount}개 제외됨</span>}
               </p>
               <p className="text-xs text-gray-400 mb-4">오류 행은 등록하지 않습니다.</p>
 
@@ -763,17 +840,23 @@ export default function ProductsPage() {
                   <div
                     key={p.id}
                     className={`bg-white rounded-xl border px-4 py-3 flex items-start gap-3 transition-colors ${
+                      !showForm ? 'cursor-pointer' : ''
+                    } ${
                       editingId === p.id
                         ? 'border-black ring-1 ring-black'
-                        : selectedIds.has(p.id)
-                          ? 'border-blue-300 bg-blue-50/30'
-                          : 'border-gray-200'
+                        : viewingId === p.id
+                          ? 'border-gray-400 ring-1 ring-gray-300'
+                          : selectedIds.has(p.id)
+                            ? 'border-blue-300 bg-blue-50/30'
+                            : 'border-gray-200 hover:border-gray-300'
                     }`}
+                    onClick={!showForm ? () => startView(p) : undefined}
                   >
                     <input
                       type="checkbox"
                       checked={selectedIds.has(p.id)}
                       onChange={() => toggleSelect(p.id)}
+                      onClick={e => e.stopPropagation()}
                       className="mt-1 w-4 h-4 accent-black cursor-pointer shrink-0"
                     />
                     <div className="flex-1 min-w-0">
@@ -787,7 +870,7 @@ export default function ProductsPage() {
                       {/* 태그 행 */}
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {p.brands?.brand_name && (
-                          <span className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">
+                          <span className={`text-xs rounded px-2 py-0.5 ${brandTagColor(p.brand_id)}`}>
                             {p.brands.brand_name}
                           </span>
                         )}
@@ -814,7 +897,7 @@ export default function ProductsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0 mt-0.5">
+                    <div className="flex items-center gap-3 shrink-0 mt-0.5" onClick={e => e.stopPropagation()}>
                       {showHidden ? (
                         <button
                           onClick={() => handleActivate(p.id)}
@@ -843,10 +926,11 @@ export default function ProductsPage() {
           )}
         </div>
 
-        {/* ── Right: Form ── */}
-        {showForm && (
+        {/* ── Right: Detail or Form ── */}
+        {(showForm || viewingProduct) && (
           <div className="w-96 shrink-0">
             <div className="bg-white rounded-xl border border-gray-200 p-5 sticky top-6 max-h-[calc(100vh-6rem)] overflow-y-auto">
+              {showForm ? (<>
               <h3 className="text-sm font-semibold text-gray-900 mb-1">
                 {isCopying ? '복사 등록 중' : isCreating ? '새 제품 등록' : '제품 수정'}
               </h3>
@@ -1046,6 +1130,9 @@ export default function ProductsPage() {
                   )}
                 </div>
               </form>
+              </>) : viewingProduct && (
+                <DetailPanel product={viewingProduct} onEdit={startEdit} onClose={closeView} />
+              )}
             </div>
           </div>
         )}
@@ -1070,5 +1157,113 @@ function Field({ label, required, children }: {
       </label>
       {children}
     </div>
+  )
+}
+
+function DetailRow({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
+  if (!value) return null
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+      <p className={`text-sm text-gray-800 ${mono ? 'font-mono' : ''}`}>{value}</p>
+    </div>
+  )
+}
+
+function DetailPanel({
+  product,
+  onEdit,
+  onClose,
+}: {
+  product: Product
+  onEdit: (p: Product) => void
+  onClose: () => void
+}) {
+  const hasLogistics = product.unit_spec || product.pcs_per_carton != null ||
+    product.outbox_weight_kg != null || product.outbox_size_mm || product.cbm != null
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">제품 상세</h3>
+        <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-700">닫기</button>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <DetailRow label="브랜드" value={product.brands?.brand_name} />
+
+        <div className="border-t border-gray-100 pt-3 flex flex-col gap-3">
+          <DetailRow label="SKU" value={product.sku_code} mono />
+          <DetailRow label="이전 SKU" value={product.old_sku_code} mono />
+          <DetailRow label="바코드" value={product.barcode} mono />
+          <DetailRow label="HS CODE" value={product.hs_code} mono />
+        </div>
+
+        <div className="border-t border-gray-100 pt-3 flex flex-col gap-3">
+          <DetailRow label="영문 제품명" value={product.product_name} />
+          <DetailRow label="한글 제품명" value={product.product_name_kr} />
+        </div>
+
+        <div className="border-t border-gray-100 pt-3 flex gap-4">
+          <div className="flex-1">
+            <DetailRow label="제품 유형" value={product.product_type} />
+          </div>
+          <div className="flex-1">
+            <DetailRow label="카테고리" value={product.category} />
+          </div>
+        </div>
+
+        {product.positioning && <DetailRow label="효능/포지션" value={product.positioning} />}
+
+        <div className="border-t border-gray-100 pt-3 flex flex-col gap-3">
+          <DetailRow
+            label="공급가"
+            value={product.supply_price != null ? `${product.currency} ${product.supply_price.toLocaleString()}` : null}
+          />
+          <DetailRow label="MOQ 수량" value={product.moq_quantity != null ? `${product.moq_quantity.toLocaleString()} ea` : null} />
+          <DetailRow label="MOQ 메모" value={product.moq} />
+          <DetailRow label="리드타임" value={product.lead_time} />
+        </div>
+
+        <div className="border-t border-gray-100 pt-3">
+          <p className="text-xs text-gray-400 mb-2">자료 보유</p>
+          <div className="flex gap-2">
+            <span className={`text-xs rounded px-2 py-0.5 ${product.has_ingredient_list ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+              성분표 {product.has_ingredient_list ? '✓' : '✗'}
+            </span>
+            <span className={`text-xs rounded px-2 py-0.5 ${product.has_regulatory_docs ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+              인허가 {product.has_regulatory_docs ? '✓' : '✗'}
+            </span>
+          </div>
+        </div>
+
+        {hasLogistics && (
+          <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">물류 정보</p>
+            <DetailRow label="용량/단위 스펙" value={product.unit_spec} />
+            <DetailRow label="카튼당 입수" value={product.pcs_per_carton != null ? `${product.pcs_per_carton} pcs` : null} />
+            <DetailRow label="카튼 중량" value={product.outbox_weight_kg != null ? `${product.outbox_weight_kg} kg` : null} />
+            <DetailRow label="카튼 사이즈" value={product.outbox_size_mm ? `${product.outbox_size_mm} mm` : null} />
+            <DetailRow label="CBM" value={product.cbm != null ? String(product.cbm) : null} />
+          </div>
+        )}
+
+        {product.notes && (
+          <div className="border-t border-gray-100 pt-3">
+            <p className="text-xs text-gray-400 mb-1">메모</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{product.notes}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-gray-100">
+        <button
+          onClick={() => onEdit(product)}
+          className="w-full rounded-lg bg-black text-white py-2 text-sm font-medium hover:bg-gray-800 transition-colors"
+        >
+          수정하기
+        </button>
+      </div>
+    </>
   )
 }
