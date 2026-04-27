@@ -143,7 +143,16 @@ export default function ProductsPage() {
         is_active, notes
       `)
       .order('product_name', { ascending: true })
-    if (data) setProducts(data as Product[])
+    if (data) {
+      const normalized: Product[] = data.map(row => {
+        const brandsRaw = row.brands
+        const brands = Array.isArray(brandsRaw)
+          ? (brandsRaw[0] as { brand_name: string } | undefined) ?? null
+          : (brandsRaw as { brand_name: string } | null) ?? null
+        return { ...row, brands }
+      })
+      setProducts(normalized)
+    }
   }
 
   const visibleProducts = products.filter(p => showHidden ? !p.is_active : p.is_active)
