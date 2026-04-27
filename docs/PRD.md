@@ -141,13 +141,45 @@ buyer_price = supply_price / (1 - margin_rate / 100)
 - **자료 링크**: 이번 단계에서는 다루지 않음 — 다음 단계에서 별도 기능으로 구현
 
 ### 8-2. 제품 관리
-- 소속 브랜드, 제품명, 카테고리, 효능/포지션
-- 공급가, 통화 (KRW / USD / EUR 등)
-- MOQ, 리드타임
-- 인증 상태 (없음 / 진행중 / 완료) — CPNP, CPSR, FDA, TFDA 등 종류 포함
-- 성분표 보유 여부, 인허가 자료 보유 여부
-- 제품 이미지/자료 링크 (복수, 메타데이터 포함)
-- 활성/비활성 상태
+
+> `/products`는 포지클이 공급사로부터 받은 **매입가 기준 제품 마스터**를 관리하는 화면이다.
+> `supply_price`는 공급사 매입가이며, 바이어 판매가·마진·환율 적용은 proposals 단계에서 계산한다.
+
+**식별 정보**
+- `sku_code` — 내부관리용 SKU (수동 입력, unique). 향후 자동 생성 기능으로 확장 예정
+- `old_sku_code` — 이전 SKU 코드 (선택)
+- `barcode` — 바코드 (선택)
+- `hs_code` — HS CODE (선택)
+
+**제품명**
+- `product_name` — 영문명 (기준값)
+- `product_name_kr` — 한글명 (선택)
+
+**분류**
+- `product_type` — 제품 유형 (기본값: `Live`)
+  - 추천: `Live`, `Hold`, `GWP`, `Sample`, `Miniature`, `Tester`, `Non-sale`, `Discontinued`, `OEM Option`, `Other`
+- `category` — 선택식 카테고리 (DB에 영어값 저장). 향후 별도 category 테이블로 확장 가능
+  - 추천: `Toner`, `Toner Pad`, `Ampoule / Serum`, `Cream`, `Mask Pack`, `Cleanser`, `Sunscreen`, `Makeup Base`, `Cushion`, `Concealer`, `Lip`, `Hair Care`, `Body Care`, `Food`, `Health Supplement`, `Device`, `OEM Option`, `Other`
+- `positioning` — 주요 효능/포지션
+
+**가격/MOQ**
+- `supply_price` — 공급사 매입가 / `currency` — 통화 (기본: `USD`, KRW도 자주 사용)
+- `moq_quantity` — MOQ 수량 (숫자). 단위 등 상세 내용은 `moq` 텍스트 메모에 기록
+- `moq` — MOQ 텍스트 메모 / `lead_time` — 리드타임
+
+**인증/자료**
+- `certifications` — 인증 목록 (CPNP, CPSR, FDA, TFDA 등 + 상태)
+- `has_ingredient_list` — 성분표 보유 여부 / `has_regulatory_docs` — 인허가 자료 보유 여부
+
+**물류 정보** (MVP부터 DB 저장, UI는 접이식 섹션으로 구현 예정)
+- `unit_spec` — 용량/단위 스펙 (예: 50ml, 30g)
+- `pcs_per_carton` — 카튼당 입수량 / `outbox_weight_kg` — 카튼 중량(kg)
+- `outbox_size_mm` — 카튼 사이즈(mm) / `cbm` — CBM
+
+**기타**
+- `is_active` — 활성/비활성 (삭제 대신 비활성화로 관리)
+- `notes` — 메모
+- **대량 등록**: 엑셀 import는 이번 단계 미구현 — 향후 별도 products import 기능으로 분리
 
 ### 8-3. 바이어 관리
 - **회사 단위로 관리** (MVP: 대표 담당자 1명만 저장)

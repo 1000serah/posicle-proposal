@@ -44,8 +44,9 @@ create trigger trg_brands_updated_at
 
 
 -- =============================================================
--- 2. products (제품)
+-- 2. products (제품 마스터 — 공급사 매입가 기준)
 -- =============================================================
+-- supply_price = 공급사 매입가. 바이어 판매가·마진은 proposals 단계에서 계산.
 create table products (
   id                   uuid          primary key default uuid_generate_v4(),
   created_at           timestamptz   not null default now(),
@@ -53,19 +54,51 @@ create table products (
   created_by           uuid,
 
   brand_id             uuid          references brands(id) on delete set null,
-  product_name         text          not null,
-  category             text,
-  positioning          text,         -- 주요 효능/포지션
+
+  -- 식별 정보
+  sku_code             text,         -- 내부 SKU (unique index)
+  old_sku_code         text,
+  barcode              text,
+  hs_code              text,
+
+  -- 제품명
+  product_name         text          not null,  -- 영문명
+  product_name_kr      text,                    -- 한글명
+
+  -- 분류
+  product_type         text          not null default 'Live',
+                                     -- 추천: Live, Hold, GWP, Sample, Miniature, Tester,
+                                     --       Non-sale, Discontinued, OEM Option, Other
+  category             text,         -- 추천: Toner, Toner Pad, Ampoule / Serum, Cream,
+                                     --       Mask Pack, Cleanser, Sunscreen, Makeup Base,
+                                     --       Cushion, Concealer, Lip, Hair Care, Body Care,
+                                     --       Food, Health Supplement, Device, OEM Option, Other
+  positioning          text,
+
+  -- 가격
   supply_price         numeric(12,2),
   currency             text          not null default 'USD',
-  moq                  text,         -- 최소 주문 수량 (예: "300ea", "1 carton")
-  lead_time            text,         -- 리드타임 (예: "30일")
+
+  -- MOQ
+  moq_quantity         numeric(12,2),
+  moq                  text,         -- 텍스트 메모 (단위, 조건 등)
+  lead_time            text,
+
+  -- 인증/자료
   certifications       jsonb         not null default '[]',
                                      -- [{"type":"CPNP","status":"완료"},{"type":"FDA","status":"진행중"}]
                                      -- type 추천: CPNP, CPSR, FDA, TFDA, HALAL, ISO, 기타
                                      -- status 추천: 없음, 진행중, 완료
   has_ingredient_list  boolean       not null default false,
   has_regulatory_docs  boolean       not null default false,
+
+  -- 물류 정보
+  unit_spec            text,         -- 용량/단위 스펙 (예: 50ml, 30g)
+  pcs_per_carton       numeric(12,2),
+  outbox_weight_kg     numeric(12,2),
+  outbox_size_mm       text,
+  cbm                  numeric(12,4),
+
   is_active            boolean       not null default true,
   notes                text
 );

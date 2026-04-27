@@ -55,26 +55,46 @@ buyers ──< proposals ──< proposal_items >── products
 
 ---
 
-### 2. `products` — 제품
+### 2. `products` — 제품 마스터
+
+> `supply_price`는 공급사 매입가. 바이어 판매가·마진·환율 적용은 proposals 단계에서 처리.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `brand_id` | uuid | | `brands.id` FK |
-| `product_name` | text | ✅ | 제품명 |
-| `category` | text | | 제품 카테고리 (스킨케어, 선케어, 건기식 등) |
-| `positioning` | text | | 주요 효능/포지션 (예: 미백 앰플, 저자극 선크림) |
-| `supply_price` | numeric(12,2) | | 현재 공급가 |
-| `currency` | text | ✅ | 공급가 통화 (기본값: `USD`) — 견적 통화와 별도 관리 |
-| `moq` | text | | 최소 주문 수량 (예: 300ea, 1 carton) |
-| `lead_time` | text | | 리드타임 (예: 30일, 4~6주) |
-| `certifications` | jsonb | | 인증 목록. 예: `[{"type":"CPNP","status":"완료"},{"type":"FDA","status":"진행중"}]` |
+| `sku_code` | text | | 내부 SKU 코드 (unique index) |
+| `old_sku_code` | text | | 이전 SKU 코드 |
+| `barcode` | text | | 바코드 |
+| `hs_code` | text | | HS CODE |
+| `product_name` | text | ✅ | 영문 제품명 |
+| `product_name_kr` | text | | 한글 제품명 |
+| `product_type` | text | ✅ | 제품 유형 (기본값: `Live`) |
+| `category` | text | | 카테고리 — 선택식, 영어값 저장. 향후 별도 category 테이블로 확장 가능 |
+| `positioning` | text | | 주요 효능/포지션 |
+| `supply_price` | numeric(12,2) | | 공급사 매입가 |
+| `currency` | text | ✅ | 공급가 통화 (기본값: `USD`) |
+| `moq_quantity` | numeric(12,2) | | MOQ 수량 (숫자) |
+| `moq` | text | | MOQ 텍스트 메모 (단위, 조건 등) |
+| `lead_time` | text | | 리드타임 |
+| `certifications` | jsonb | | 인증 목록 |
 | `has_ingredient_list` | boolean | ✅ | 성분표 보유 여부 (기본: false) |
 | `has_regulatory_docs` | boolean | ✅ | 인허가 자료 보유 여부 (기본: false) |
+| `unit_spec` | text | | 용량/단위 스펙 (예: 50ml, 30g) |
+| `pcs_per_carton` | numeric(12,2) | | 카튼당 입수량 |
+| `outbox_weight_kg` | numeric(12,2) | | 카튼 중량 (kg) |
+| `outbox_size_mm` | text | | 카튼 사이즈 (mm) |
+| `cbm` | numeric(12,4) | | CBM |
 | `is_active` | boolean | ✅ | 활성 여부 (기본: true) |
-| `notes` | text | | 메모 (공급가 변경 이유 등 기록) |
+| `notes` | text | | 메모 |
+
+**product_type 추천 값:** `Live`, `Hold`, `GWP`, `Sample`, `Miniature`, `Tester`, `Non-sale`, `Discontinued`, `OEM Option`, `Other`
+
+**category 추천 값:** `Toner`, `Toner Pad`, `Ampoule / Serum`, `Cream`, `Mask Pack`, `Cleanser`, `Sunscreen`, `Makeup Base`, `Cushion`, `Concealer`, `Lip`, `Hair Care`, `Body Care`, `Food`, `Health Supplement`, `Device`, `OEM Option`, `Other`
 
 **certifications 추천 type 값:** `CPNP`, `CPSR`, `FDA`, `TFDA`, `HALAL`, `ISO`, `기타`
 **certifications 추천 status 값:** `없음`, `진행중`, `완료`
+
+**인덱스:** `sku_code` — unique (중복 방지)
 
 ---
 
