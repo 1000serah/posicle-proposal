@@ -86,6 +86,20 @@ const emptyForm = {
 type FormState = typeof emptyForm
 type Message = { type: 'success' | 'error'; text: string }
 
+type ParsedRow = {
+  sku_code: string
+  product_name: string
+  product_name_kr: string
+  product_type: string
+  category: string
+  supply_price: string
+  currency: string
+  moq_quantity: string
+  moq: string
+  lead_time: string
+  errors: string[]
+}
+
 function toNum(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n }
 
 export default function ProductsPage() {
@@ -105,6 +119,12 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkMode, setBulkMode] = useState(false)
+  const [bulkBrandId, setBulkBrandId] = useState('')
+  const [pasteText, setPasteText] = useState('')
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkMessage, setBulkMessage] = useState<Message | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -404,6 +424,90 @@ export default function ProductsPage() {
     }
   }
 
+  function startBulkMode() {
+    cancelForm()
+    setBulkMode(true)
+    setBulkBrandId('')
+    setPasteText('')
+    setParsedRows([])
+    setBulkMessage(null)
+  }
+
+  function cancelBulkMode() {
+    setBulkMode(false)
+    setBulkBrandId('')
+    setPasteText('')
+    setParsedRows([])
+    setBulkMessage(null)
+  }
+
+  function parsePasteText() {
+    const existingSkus = new Set(products.filter(p => p.sku_code).map(p => p.sku_code!))
+    const lines = pasteText.trim().split('\n').filter(l => l.trim())
+    const skusInBatch = new Set<string>()
+
+    const rows: ParsedRow[] = lines.map(line => {
+      const cols = line.split('\t')
+      const sku_code = cols[0]?.trim() ?? ''
+      const product_name = cols[1]?.trim() ?? ''
+      const product_name_kr = cols[2]?.trim() ?? ''
+      const rawType = cols[3]?.trim() ?? ''
+      const product_type = PRODUCT_TYPES.includes(rawType) ? rawType : 'Live'
+      const category = cols[4]?.trim() ?? ''
+      const supply_price = cols[5]?.trim() ?? ''
+      const rawCurrency = cols[6]?.trim() ?? ''
+      const currency = CURRENCIES.includes(rawCurrency) ? rawCurrency : 'USD'
+      const moq_quantity = cols[7]?.trim() ?? ''
+      const moq = cols[8]?.trim() ?? ''
+      const lead_time = cols[9]?.trim() ?? ''
+
+      const errors: string[] = []
+      if (!product_name) errors.push('영문명 필수')
+      if (sku_code) {
+        if (existingSkus.has(sku_code)) errors.push('SKU 이미 등록됨')
+        else if (skusInBatch.has(sku_code)) errors.push('SKU 배치 내 중복')
+        else skusInBatch.add(sku_code)
+      }
+
+      return { sku_code, product_name, product_name_kr, product_type, category, supply_price, currency, moq_quantity, moq, lead_time, errors }
+    })
+    setParsedRows(rows)
+  }
+
+  async function handleBulkSubmit() {
+    const validRows = parsedRows.filter(r => r.errors.length === 0)
+    if (!validRows.length) return
+    setBulkSaving(true)
+    setBulkMessage(null)
+
+    const payloads = validRows.map(r => ({
+      brand_id: bulkBrandId || null,
+      sku_code: r.sku_code || null,
+      product_name: r.product_name,
+      product_name_kr: r.product_name_kr || null,
+      product_type: r.product_type,
+      category: r.category || null,
+      supply_price: toNum(r.supply_price),
+      currency: r.currency,
+      moq_quantity: toNum(r.moq_quantity),
+      moq: r.moq || null,
+      lead_time: r.lead_time || null,
+      created_by: user?.id,
+      is_active: true,
+    }))
+
+    const { error } = await supabase.from('products').insert(payloads)
+    if (error) {
+      setBulkMessage({ type: 'error', text: '등록에 실패했습니다. SKU 중복이 있을 수 있습니다.' })
+    } else {
+      setBulkMessage({ type: 'success', text: `${validRows.length}개 제품이 등록됐습니다.` })
+      setPasteText('')
+      setParsedRows([])
+      fetchProducts()
+    }
+    setBulkSaving(false)
+  }
+
   if (pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -413,6 +517,156 @@ export default function ProductsPage() {
   }
 
   const showForm = isCreating || editingId !== null
+  const validCount = parsedRows.filter(r => r.errors.length === 0).length
+  const errorCount = parsedRows.filter(r => r.errors.length > 0).length
+
+  if (bulkMode) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm">
+            <a href="/" className="text-gray-500 hover:text-gray-900">대시보드</a>
+            <span className="text-gray-300">/</span>
+            <button onClick={cancelBulkMode} className="text-gray-500 hover:text-gray-900">제품 마스터</button>
+            <span className="text-gray-300">/</span>
+            <span className="font-semibold text-gray-900">대량 붙여넣기 등록</span>
+          </div>
+          <span className="text-sm text-gray-500">{user?.email}</span>
+        </header>
+
+        <div className="max-w-4xl mx-auto px-6 py-6">
+          {bulkMessage && (
+            <div className={`mb-4 rounded-lg px-4 py-3 text-sm ${
+              bulkMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
+              {bulkMessage.text}
+            </div>
+          )}
+
+          {/* 1단계: 브랜드 선택 + 붙여넣기 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+            <p className="text-sm font-semibold text-gray-900 mb-4">1단계 — 브랜드 선택 & 데이터 붙여넣기</p>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                브랜드 <span className="text-red-500">*</span>
+                <span className="text-gray-400 font-normal ml-1">(모든 행에 동일하게 적용)</span>
+              </label>
+              <select value={bulkBrandId} onChange={e => setBulkBrandId(e.target.value)} className={selectCls}>
+                <option value="">브랜드 선택</option>
+                {brands.map(b => <option key={b.id} value={b.id}>{b.brand_name}</option>)}
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-xs font-medium text-gray-700 mb-2">엑셀/구글시트 열 순서</p>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  'A: SKU코드', 'B: 영문명*', 'C: 한글명', 'D: 제품유형',
+                  'E: 카테고리', 'F: 공급가', 'G: 통화', 'H: MOQ수량', 'I: MOQ메모', 'J: 리드타임',
+                ].map(col => (
+                  <span key={col} className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5 font-mono">{col}</span>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">* 영문명 필수. D열 비우면 Live, G열 비우면 USD 자동 적용.</p>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-700 mb-1">데이터 붙여넣기</label>
+              <textarea
+                value={pasteText}
+                onChange={e => { setPasteText(e.target.value); setParsedRows([]) }}
+                rows={6}
+                placeholder="엑셀/구글시트에서 셀 범위 선택 → Ctrl+C → 여기서 Ctrl+V"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black resize-none font-mono"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={parsePasteText}
+                disabled={!pasteText.trim()}
+                className="rounded-lg bg-gray-800 text-white text-sm px-4 py-2 hover:bg-black disabled:opacity-40 transition-colors"
+              >
+                미리보기
+              </button>
+              <button type="button" onClick={cancelBulkMode} className="text-sm text-gray-500 hover:text-gray-900">
+                취소
+              </button>
+            </div>
+          </div>
+
+          {/* 2단계: 미리보기 */}
+          {parsedRows.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <p className="text-sm font-semibold text-gray-900 mb-1">
+                2단계 — 미리보기
+                <span className="ml-2 text-xs font-normal text-gray-500">전체 {parsedRows.length}행</span>
+                {validCount > 0 && <span className="ml-1 text-xs font-normal text-green-600">· 유효 {validCount}개</span>}
+                {errorCount > 0 && <span className="ml-1 text-xs font-normal text-red-500">· 오류 {errorCount}개</span>}
+              </p>
+              <p className="text-xs text-gray-400 mb-4">오류 행은 등록하지 않습니다.</p>
+
+              <div className="overflow-x-auto mb-5">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left">
+                      {['#', '상태', 'SKU', '영문명', '한글명', '유형', '카테고리', '공급가', '통화', 'MOQ수량'].map(h => (
+                        <th key={h} className="pb-2 pr-3 text-gray-400 font-medium whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedRows.map((row, i) => (
+                      <tr key={i} className={`border-b border-gray-100 ${row.errors.length > 0 ? 'bg-red-50' : ''}`}>
+                        <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
+                        <td className="py-2 pr-3">
+                          {row.errors.length === 0 ? (
+                            <span className="text-green-600 font-medium">✓</span>
+                          ) : (
+                            <div className="flex flex-col gap-0.5">
+                              {row.errors.map((err, j) => (
+                                <span key={j} className="bg-red-100 text-red-600 rounded px-1 whitespace-nowrap">{err}</span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 font-mono text-gray-700">{row.sku_code || '—'}</td>
+                        <td className="py-2 pr-3 text-gray-900">{row.product_name || <span className="text-gray-300">—</span>}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.product_name_kr || '—'}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.product_type}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.category || '—'}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.supply_price || '—'}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.currency}</td>
+                        <td className="py-2 pr-3 text-gray-600">{row.moq_quantity || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {validCount > 0 ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleBulkSubmit}
+                    disabled={bulkSaving || !bulkBrandId}
+                    className="rounded-lg bg-black text-white text-sm px-5 py-2 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                  >
+                    {bulkSaving ? '등록 중...' : `유효한 ${validCount}개 등록하기`}
+                  </button>
+                  {!bulkBrandId && <p className="text-xs text-red-500">브랜드를 먼저 선택해주세요.</p>}
+                </div>
+              ) : (
+                <p className="text-sm text-red-500">유효한 행이 없습니다. 오류를 확인해주세요.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -423,7 +677,15 @@ export default function ProductsPage() {
           <span className="text-gray-300">/</span>
           <span className="font-semibold text-gray-900">제품 마스터</span>
         </div>
-        <span className="text-sm text-gray-500">{user?.email}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={startBulkMode}
+            className="rounded-lg border border-gray-300 text-gray-700 text-sm px-3 py-1.5 hover:bg-gray-50 transition-colors"
+          >
+            대량 붙여넣기
+          </button>
+          <span className="text-sm text-gray-500">{user?.email}</span>
+        </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6 flex gap-6 items-start">
