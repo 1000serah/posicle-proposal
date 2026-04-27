@@ -35,16 +35,23 @@ buyers ──< proposals ──< proposal_items >── products
 
 ### 1. `brands` — 브랜드/공급사
 
+> MVP에서는 브랜드와 공급사를 이 테이블 하나로 통합 관리.
+> 공급사 1곳이 여러 브랜드를 가지는 구조가 필요해지면 `suppliers` 테이블로 분리.
+
 | 컬럼 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `brand_name` | text | ✅ | 브랜드명 |
-| `supplier_name` | text | | 공급사명 (브랜드와 다를 수 있음) |
-| `country` | text | | 원산지/공급사 국가 |
-| `category` | text | | 주요 카테고리 (화장품, 식품, 건기식 등) |
+| `supplier_name` | text | | 공급사명 (브랜드 본사, 제조사, 총판 등) |
+| `country` | text | | 공급사 국가 (기본값: `Korea`) |
+| `category` | text | | 카테고리 — 선택식, DB에 영어값 저장 (추천 값 아래 참조) |
 | `contact_person` | text | | 담당자 이름 |
 | `contact_info` | text | | 연락처 (전화, 이메일 등) |
-| `file_links` | jsonb | | 관련 자료 링크 배열. 예: `[{"name":"브랜드소개서","url":"https://..."}]` |
+| `is_active` | boolean | ✅ | 활성 여부 (기본: true) — 삭제 대신 비활성화로 관리 |
+| `file_links` | jsonb | | 관련 자료 링크 배열 — 다음 단계에서 별도 기능으로 구현 |
 | `notes` | text | | 메모 |
+
+**category 선택 값 (DB 저장 기준):**
+`Skincare`, `Makeup`, `Haircare`, `Bodycare`, `Food`, `Health Supplement`, `Kids`, `Clinic / Aesthetic`, `Lifestyle`, `Other`
 
 ---
 

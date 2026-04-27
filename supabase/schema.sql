@@ -26,14 +26,16 @@ create table brands (
   updated_at    timestamptz not null default now(),
   created_by    uuid,                         -- 나중에 auth.users.id와 연결
 
-  brand_name    text        not null,
-  supplier_name text,
-  country       text,
-  category      text,
+  brand_name     text        not null,
+  supplier_name  text,
+  country        text        not null default 'Korea',
+  category       text,       -- 선택식: Skincare, Makeup, Haircare, Bodycare, Food,
+                             --         Health Supplement, Kids, Clinic / Aesthetic, Lifestyle, Other
   contact_person text,
-  contact_info  text,
-  file_links    jsonb       not null default '[]', -- [{"name":"브랜드소개서","url":"https://..."}]
-  notes         text
+  contact_info   text,
+  is_active      boolean     not null default true,
+  file_links     jsonb       not null default '[]', -- [{"name":"브랜드소개서","url":"https://..."}]
+  notes          text
 );
 
 create trigger trg_brands_updated_at
